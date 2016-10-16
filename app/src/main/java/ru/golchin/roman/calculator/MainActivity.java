@@ -66,6 +66,7 @@ public class MainActivity extends AppCompatActivity implements Button.OnClickLis
             mainDisplay.setText(initialValue);
             intermediateDisplay.setText("");
             reset();
+            result = 0.;
             return;
         }
         if (command.equals("=")) {
@@ -86,7 +87,7 @@ public class MainActivity extends AppCompatActivity implements Button.OnClickLis
             if (mainLength == 1) {
                 mainDisplay.setText(initialValue);
             } else {
-                mainDisplay.setText(mainDisplay.getText().subSequence(0, mainLength - 2));
+                mainDisplay.setText(mainDisplay.getText().subSequence(0, mainLength - 1));
             }
         }
         int intermediateLength = intermediateDisplay.getText().length();
@@ -101,8 +102,11 @@ public class MainActivity extends AppCompatActivity implements Button.OnClickLis
         //the result of calculation is guaranteed to fit in main display and intermediate display has more capacity
         if (OPERATORS.contains(command)) {
             if (pendingOperation != null) {
-                if (rightOperand == null)
-                    return;
+                try {
+                    rightOperand = Double.parseDouble(numberBuilder.toString());
+                } catch (NumberFormatException e) {
+                    rightOperand = 0.;
+                }
                 calculate();
             } else {
                 try {
@@ -120,7 +124,8 @@ public class MainActivity extends AppCompatActivity implements Button.OnClickLis
                 intermediateDisplay.setText(mainDisplay.getText());
             } else if (addParen) {
                 intermediateDisplay.setText("(" + intermediateDisplay.getText().toString() + ")");
-                lowPriority = false;
+            } else {
+                intermediateDisplay.append(mainDisplay.getText());
             }
             intermediateDisplay.append(command);
             lowPriority = (command.equals("+") || command.equals("-"));
@@ -164,7 +169,6 @@ public class MainActivity extends AppCompatActivity implements Button.OnClickLis
     private void reset() {
         lowPriority = isFractional = numberStarted = false;
         pendingOperation = null;
-        result = 0.;
     }
 
     private void setOnClickListenerGroup(ViewGroup viewGroup) {
@@ -185,6 +189,7 @@ public class MainActivity extends AppCompatActivity implements Button.OnClickLis
         mainDisplay = (TextView) findViewById(R.id.main);
         intermediateDisplay = (TextView) findViewById(R.id.intermediate);
         reset();
+        result = 0.;
         initialValue = getString(R.string.initial_value);
         errorMessage = getString(R.string.error_message);
         ViewGroup buttons = (ViewGroup) findViewById(R.id.buttons);
