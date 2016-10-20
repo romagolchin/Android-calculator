@@ -15,8 +15,8 @@
     <string name="del">DEL</string>
     <string name="add">+</string>
     <string name="sub">-</string>
-    <string name="mul">*</string>
-    <string name="div">/</string>
+    <string name="mul">\u00d7</string>
+    <string name="div">÷</string>
     <string name="eqv">=</string>
     <string name="decimal_separator">.</string>
     <string name="initial_value">0</string>

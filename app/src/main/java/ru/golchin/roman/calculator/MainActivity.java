@@ -8,6 +8,8 @@ import android.view.ViewGroup;
 import android.widget.Button;
 import android.widget.TextView;
 
+import static ru.golchin.roman.calculator.R.id.intermediate;
+
 public class MainActivity extends AppCompatActivity implements Button.OnClickListener {
 
     private static final String DIGITS = "0123456789";
@@ -18,35 +20,42 @@ public class MainActivity extends AppCompatActivity implements Button.OnClickLis
     private String initialValue;
     private String errorMessage;
 
-    private String pendingOperation;
+    private String pendingOperator;
     private TextView mainDisplay;
     private TextView intermediateDisplay;
     private Double result = 0.0;
     private Double rightOperand;
-    //true iff current number contains separator (to prevent multiple separators)
+    //true when current number contains separator (to prevent multiple separators)
     private boolean isFractional;
-    //true iff calculator is getting number
-    private boolean numberStarted;
-    // true iff last operation is +/-
+    //true when calculator is getting number
+    private boolean gettingNumber;
+    // true when last operator is +/-
     private boolean lowPriority;
+    //true when calculator is getting operator, current operator wipes out the previous one; it means that there's no right operand yet
+    private boolean gettingOperator;
+    private boolean addParen;
     private StringBuilder numberBuilder = new StringBuilder();
-//    private StringBuilder resultBuilder = new StringBuilder();
 
 
     private String shortenDouble(Double x, int length) {
-        return String.valueOf(x);
+        String res = String.valueOf(x);
+        int len = res.length();
+        return (len >= 2 && res.charAt(len - 2) == decimalSeparator.charAt(0) && res.charAt(len - 1) == '0') ? res.substring(0, len - 2) : res;
     }
 
     private void calculate() {
-        if (pendingOperation == null || rightOperand == null)
+        if (pendingOperator == null) {
+        }
+        if (rightOperand == null) {
             return;
-        if (pendingOperation.equals("+")) {
+        }
+        if (pendingOperator.equals("+")) {
             result += rightOperand;
-        } else if (pendingOperation.equals("-")) {
+        } else if (pendingOperator.equals("-")) {
             result -= rightOperand;
-        } else if (pendingOperation.equals("*")) {
+        } else if (pendingOperator.equals("*")) {
             result *= rightOperand;
-        } else if (pendingOperation.equals("/")) {
+        } else if (pendingOperator.equals("/")) {
             result /= rightOperand;
         }
         if (Double.isNaN(result) || Double.isInfinite(result)) {
@@ -54,7 +63,10 @@ public class MainActivity extends AppCompatActivity implements Button.OnClickLis
             mainDisplay.setText(errorMessage);
             result = 0.0;
         }
-        mainDisplay.setText(shortenDouble(result, MAX_MAIN_LENGTH));
+        if (!mainDisplay.getText().toString().equals(errorMessage)) {
+            mainDisplay.setText(shortenDouble(result, MAX_MAIN_LENGTH));
+        }
+
     }
 
     @Override
@@ -69,25 +81,40 @@ public class MainActivity extends AppCompatActivity implements Button.OnClickLis
             result = 0.;
             return;
         }
-        if (command.equals("=")) {
-            if (pendingOperation != null) {
-                try {
-                    rightOperand = Double.parseDouble(numberBuilder.toString());
-                } catch (NumberFormatException e) {
-                    rightOperand = 0.;
-                }
+        //if an error occurred typing an operator is not allowed but user can start typing a new number
+        boolean error = mainDisplay.getText().toString().equals(errorMessage);
+        if (!error && command.equals("=")) {
+            if (numberBuilder.charAt(numberBuilder.length() - 1) == decimalSeparator.charAt(0))
+                mainDisplay.setText(numberBuilder.subSequence(0, numberBuilder.length() - 1));
+            if (pendingOperator != null) {
+                if (!gettingOperator) {
+                    try {
+                        rightOperand = Double.parseDouble(numberBuilder.toString());
+                    } catch (NumberFormatException e) {
+                        rightOperand = 0.;
+                    }
+                } else
+                    rightOperand = result;
                 calculate();
+            } else {
+                try {
+                    result = Double.parseDouble(numberBuilder.toString());
+                } catch (NumberFormatException e) {
+                    result = 0.;
+                }
             }
             intermediateDisplay.setText("");
             reset();
             return;
         }
         int mainLength = mainDisplay.getText().length();
-        if (command.equals("DEL")) {
-            if (mainLength == 1) {
-                mainDisplay.setText(initialValue);
-            } else {
-                mainDisplay.setText(mainDisplay.getText().subSequence(0, mainLength - 1));
+        if (!error && command.equals("DEL")) {
+            if (gettingNumber) {
+                if (mainLength == 1) {
+                    mainDisplay.setText(initialValue);
+                } else {
+                    mainDisplay.setText(mainDisplay.getText().subSequence(0, mainLength - 1));
+                }
             }
         }
         int intermediateLength = intermediateDisplay.getText().length();
@@ -97,78 +124,124 @@ public class MainActivity extends AppCompatActivity implements Button.OnClickLis
         //the following operations are expected to increase the length of text in one or both displays
         //if length of main display is exceeded calculator waits for command other than digit or separator
         //if length of intermediate display is exceeded result is copied from main display to intermediate one
-        //and operation is appended to it
+        //and operator is appended to it
         //for example, if intermediate = '(123+456)*789', command = '/' then we get '456831/'
         //the result of calculation is guaranteed to fit in main display and intermediate display has more capacity
-        if (OPERATORS.contains(command)) {
-            if (pendingOperation != null) {
-                try {
-                    rightOperand = Double.parseDouble(numberBuilder.toString());
-                } catch (NumberFormatException e) {
-                    rightOperand = 0.;
+        if (!error && OPERATORS.contains(command)) {
+            boolean prevAddParen = false;
+            // this is not the first operator
+            if (gettingOperator) {
+                prevAddParen = addParen;
+                intermediateDisplay.setText(intermediateDisplay.getText().subSequence(0, intermediateLength - 1));
+                --intermediateLength;
+            }
+            //check whether we need to add parentheses to enforce correctness of the expression
+            addParen = lowPriority && (command.equals("*") || command.equals("/"));
+            if (!gettingOperator)
+                lowPriority = (pendingOperator == null || pendingOperator.equals("+") || pendingOperator.equals("-"));
+            //handle the situation when previous operator had low priority (and required parentheses) and the current one has high priority
+            if (gettingOperator && prevAddParen && !addParen) {
+                intermediateDisplay.setText(intermediateDisplay.getText().subSequence(1, intermediateLength - 1));
+            }
+            //remove unneeded separator in integer
+            if (gettingNumber && numberBuilder.charAt(numberBuilder.length() - 1) == decimalSeparator.charAt(0)) {
+                numberBuilder.setLength(numberBuilder.length() - 1);
+                mainDisplay.setText(mainDisplay.getText().subSequence(0, mainLength - 1));
+            }
+            //add operator and right operand
+            int additionLength = 1 + numberBuilder.length();
+            additionLength += addParen ? 2 : 0;
+            boolean shouldShorten = (intermediateLength + additionLength > MAX_INTERMEDIATE_LENGTH);
+            Log.d("shouldShorten ", String.valueOf(shouldShorten));
+            if (!shouldShorten && !gettingOperator) {
+                intermediateDisplay.append(mainDisplay.getText());
+            }
+            //operation that should be completed before the current one
+            if (pendingOperator != null) {
+                if (gettingOperator) {
+                    pendingOperator = null;
+                } else {
+                    try {
+                        rightOperand = Double.parseDouble(numberBuilder.toString());
+                    } catch (NumberFormatException e) {
+                        rightOperand = 0.;
+                    }
+                    calculate();
                 }
-                calculate();
             } else {
                 try {
-                    result = Double.parseDouble(numberBuilder.toString());
+                    result = Double.parseDouble(mainDisplay.getText().toString());
                 } catch (NumberFormatException e) {
                     result = 0.;
                 }
             }
-            pendingOperation = command;
-            numberStarted = false;
-            //check whether we need to add parentheses to enforce correctness of the expression
-            boolean addParen = lowPriority && (command.equals("*") || command.equals("/"));
-            int additionLength = addParen ? 3 : 1;
-            if (intermediateLength + additionLength > MAX_INTERMEDIATE_LENGTH) {
+            if (mainDisplay.getText().toString().equals(errorMessage)) {
+                return;
+            }
+            gettingOperator = true;
+            pendingOperator = command;
+            if (shouldShorten) {
                 intermediateDisplay.setText(mainDisplay.getText());
-            } else if (addParen) {
+            }
+            if (addParen) {
                 intermediateDisplay.setText("(" + intermediateDisplay.getText().toString() + ")");
-            } else {
-                intermediateDisplay.append(mainDisplay.getText());
             }
             intermediateDisplay.append(command);
-            lowPriority = (command.equals("+") || command.equals("-"));
+            gettingNumber = false;
+            isFractional = false;
         }
 
         if (DIGITS.contains(command)) {
-            if (numberStarted || !command.equals("0")) {
+            //several zeros at start are not allowed
+            gettingOperator = false;
+            if (!gettingNumber) {
+                numberBuilder.setLength(0);
                 numberBuilder.append(command);
+                gettingNumber = true;
+            } else {
+                if (!numberBuilder.toString().equals("0"))
+                    numberBuilder.append(command);
+                else if (!command.equals("0")) {
+                    numberBuilder.setLength(0);
+                    numberBuilder.append(command);
+                } else {
+                    return;
+                }
             }
-            if (numberStarted) {
-                mainDisplay.append(command);
-                numberBuilder.append(command);
-            } else if (!command.equals("0")) {
-                mainDisplay.setText(command);
-                numberStarted = true;
-            }
+            mainDisplay.setText(numberBuilder);
+            return;
         }
         if (command.equals(decimalSeparator)) {
-            if (numberStarted && !isFractional) {
-                mainDisplay.append(decimalSeparator);
+            gettingOperator = false;
+            if (gettingNumber && !isFractional) {
+                numberBuilder.append(decimalSeparator);
                 isFractional = true;
             }
-            if (!numberStarted) {
-                mainDisplay.setText("0" + decimalSeparator);
-                numberStarted = true;
+            //omitting zero is allowed
+            if (!gettingNumber) {
+                numberBuilder.setLength(0);
+                numberBuilder.append("0").append(decimalSeparator);
+                gettingNumber = true;
                 isFractional = true;
             }
+            mainDisplay.setText(numberBuilder);
         }
         numberBuilder.setLength(0);
         numberBuilder.append(mainDisplay.getText());
         Log.d("Result ", String.valueOf(result));
-        Log.d("Intermediate ", numberBuilder.toString());
-        Log.d("numberStarted ", String.valueOf(numberStarted));
+        Log.d("Number ", numberBuilder.toString());
+        Log.d("gettingNumber ", String.valueOf(gettingNumber));
         Log.d("isFractional ", String.valueOf(isFractional));
         Log.d("lowPriority ", String.valueOf(lowPriority));
-
+        Log.d("pendingOperator ", pendingOperator == null ? "null" : pendingOperator);
+        Log.d("rightOperand", rightOperand == null ? "null" : String.valueOf(rightOperand));
     }
 
 
     //invoked on start, after tapping C or =
     private void reset() {
-        lowPriority = isFractional = numberStarted = false;
-        pendingOperation = null;
+        addParen = gettingOperator = lowPriority = isFractional = gettingNumber = false;
+        pendingOperator = null;
     }
 
     private void setOnClickListenerGroup(ViewGroup viewGroup) {
@@ -187,7 +260,7 @@ public class MainActivity extends AppCompatActivity implements Button.OnClickLis
         setContentView(R.layout.activity_main);
         decimalSeparator = getString(R.string.decimal_separator);
         mainDisplay = (TextView) findViewById(R.id.main);
-        intermediateDisplay = (TextView) findViewById(R.id.intermediate);
+        intermediateDisplay = (TextView) findViewById(intermediate);
         reset();
         result = 0.;
         initialValue = getString(R.string.initial_value);
